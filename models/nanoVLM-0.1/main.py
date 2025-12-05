@@ -2,12 +2,16 @@ import torch
 from transformers import AutoModelForImageTextToText, AutoProcessor
 import moondream as md
 from huggingface_hub import hf_hub_download
-from datasets import load_dataset
+from datasets import load_dataset, DownloadConfig
 from models.vision_language_model import VisionLanguageModel
 import time
 import psutil
 import csv
 import evaluate
+import os
+
+os.environ["HF_DATASETS_DOWNLOAD_TIMEOUT"] = "60000"  # seconds
+os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "60000"
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -68,7 +72,7 @@ def measure_ram():
     return psutil.Process().memory_info().rss / 1024**2
 
 def vqa_accuracy(prediction, ground_truth):
-    return float(pred.strip().lower == ground_truth.strip().lower())
+    return float(pred.strip().lower() == ground_truth.strip().lower())
 
 def benchmark_model(model_name, run_func, dataset):
     results = {
@@ -92,7 +96,7 @@ def benchmark_model(model_name, run_func, dataset):
         start_ram = measure_ram()
         start = time.time()
 
-        ocr_prediction = run_func(img, "Extract all text from this document.")
+        ocr_prediction = run_func(image, "Extract all text from this document.")
 
         latency = time.time() - start
         gpu_mem = measure_gpu_memory()
@@ -109,8 +113,9 @@ def benchmark_model(model_name, run_func, dataset):
         start_ram = measure_ram()
         start = time.time()
 
-        vqa_prediction = run_func(img, question)
+        vqa_prediction = run_func(image, question)
 
+        latency = time.time() - start
         gpu_mem = measure_gpu_memory()
         ram_used = measure_ram() - start_ram
 
@@ -136,12 +141,30 @@ print("Setup for models")
 moon_model = moondream_setup()
 nano_model = nanoVLM_setup()
 
-print("TKTK: Setup for benchmarks (NOT IMPLEMENTED)")
+print("TKTK: Setup for benchmarks")
 # using DocLayNet as dataset
 # tasks related to: visual question answering, optical character recognition
 # collect accuracy metrics, measure latency and amount of memory used for each task
 
-doclaynet = load_dataset("ds4sd/doclaynet")
+raw_data = load_dataset("ds4sd/DocLayNet", split="test", download_config=DownloadConfig(num_proc=1, max_retries=20))
+
+
+def build_benchmark(sample):
+    image = sample["image"]
+
+    ocr_text = "\n".join([i["text"] for i in sample["ocr"]])
+
+    vqa_question = "How many text blocks are present in this document?"
+    vqa_answer = srt(len(sample["ocr"]))
+
+    return {
+        "image": image,
+        "ocr_text": ocr_text,
+        "question": question,
+        "answer": answer
+    }
+
+benchmark_dataset = raw.map(build_benchmark)
 
 print("TKTK: Benchmarking models")
 
@@ -149,20 +172,20 @@ print("TESTING SMOLVLM:")
 smol_results = benchmark_model(
     "smolVLM",
     lambda img, prompt: smolVLM_run(smol_model, smol_processor, img, prompt),
-    doclaynet
+    benchmark_dataset
 )
 
 print("")
 moondream_results = benchmark_model(
     "moondream",
     lambda img, prompt: moondream_run(moon_model, img, prompt),
-    doclaynet
+    benchmark_dataset
 )
 
 nano_results = benchmark_model(
     "nanoVLM",
     lambda img, prompt: nanoVLM_run(nano_model, img, prompt),
-    doclaynet
+    benchmark_dataset
 )
 
 print("TKTK: Generating output (NOT IMPLEMENTED)")

@@ -1,1 +1,12 @@
 moondream==0.0.5
+torch
+transformers
+datasets
+psutil
+evaluate
+jiwer
+numpy
+torchvision
+pillow
+huggingface-hub
+wandb
