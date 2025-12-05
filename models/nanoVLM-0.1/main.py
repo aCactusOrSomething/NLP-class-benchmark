@@ -168,7 +168,7 @@ def track_run(run_func, images, prompts, batch_size=4):
         batch_results = run_func(batch_imgs, batch_prompts, batch_size=batch_size)
 
         latency = time.time() - start_time
-        gpu_mem = measure_gpu_memory
+        gpu_mem = measure_gpu_memory()
         ram_used = measure_ram() - start_ram
         batch_stats.append({
             "latency": latency,
@@ -191,8 +191,15 @@ def benchmark_model(model_name, run_func, dataset, batch_size=4):
 
     ocr_predictions, ocr_stats = track_run(run_func, images, ocr_prompts, batch_size)
     ocr_references = [sample["ocr"] for sample in dataset]
+
+    if isinstance(ocr_predictions[0], dict) and "answer" in ocr_predictions[0]:
+        ocr_predictions = [p["answer"] for p in ocr_predictions]
+
     vqa_predictions, vqa_stats = track_run(run_func, images, vqa_prompts, batch_size)
     vqa_references = [sample["answer"] for sample in dataset]
+    
+    if isinstance(vqa_predictions[0], dict) and "answer" in vqa_predictions[0]:
+        vqa_predictions = [p["answer"] for p in vqa_predictions]
 
     cer_score = cer_metric.compute(predictions=ocr_predictions, references=ocr_references)
     wer_score = wer_metric.compute(predictions=ocr_predictions, references=ocr_references)
