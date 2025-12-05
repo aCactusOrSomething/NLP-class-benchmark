@@ -154,8 +154,8 @@ def build_benchmark(sample):
 
     ocr_text = "\n".join([i["text"] for i in sample["ocr"]])
 
-    vqa_question = "How many text blocks are present in this document?"
-    vqa_answer = srt(len(sample["ocr"]))
+    question = "How many text blocks are present in this document?"
+    answer = srt(len(sample["ocr"]))
 
     return {
         "image": image,
@@ -164,7 +164,9 @@ def build_benchmark(sample):
         "answer": answer
     }
 
-benchmark_dataset = raw.map(build_benchmark)
+benchmark_dataset = raw_data.map(build_benchmark)
+# use 10,000 random samples from dataset
+benchmark_dataset = benchmark_dataset.shuffle(seed=42).select(range(min(10000, len(benchmark_dataset))))
 
 print("TKTK: Benchmarking models")
 
