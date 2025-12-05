@@ -2,13 +2,18 @@ import torch
 from transformers import AutoModelForImageTextToText, AutoProcessor
 import moondream as md
 from huggingface_hub import hf_hub_download
-from datasets import load_dataset, DownloadConfig
+from datasets import load_dataset, DownloadConfig, Dataset
 from models.vision_language_model import VisionLanguageModel
 import time
 import psutil
 import csv
 import evaluate
 import os
+import json
+from PIL import Image
+from pathlib import Path
+import random
+from collections import defaultdict
 
 os.environ["HF_DATASETS_DOWNLOAD_TIMEOUT"] = "60000"  # seconds
 os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "60000"
@@ -87,7 +92,7 @@ def benchmark_model(model_name, run_func, dataset):
     for i, sample in enumerate(dataset):
         
         image = sample["image"]
-        ocr_ground_truth = sample["ocr_text"]
+        ocr_ground_truth = sample["ocr"]
         question = sample["question"]
         answer = sample["answer"]
 
@@ -141,34 +146,61 @@ print("Setup for models")
 moon_model = moondream_setup()
 nano_model = nanoVLM_setup()
 
-print("TKTK: Setup for benchmarks")
+print("Setup for benchmarks")
 # using DocLayNet as dataset
 # tasks related to: visual question answering, optical character recognition
 # collect accuracy metrics, measure latency and amount of memory used for each task
 
 # raw_data = load_dataset("ds4sd/DocLayNet", split="test", download_config=DownloadConfig(num_proc=1, max_retries=20))
-raw_data = load_dataset("imagefolder", data_dir="../../DocLayNet/test")
+#raw_data = load_dataset("coco", data_dir="../../DocLayNet/COCO", split="train")
 
+with open("../../DocLayNet/COCO/train.json") as f:
+    annotations = json.load(f)
+    annotations = annotations
+    annotations["images"] = annotations["images"][:10000]
+
+print("JSON opened")
+length = len(annotations["images"])
+print(annotations["annotations"][0])
+
+ann_index = defaultdict(list)
+for a in annotations["annotations"]:
+    ann_index[a["image_id"]].append(a)
+
+print('indexed')
+samples = []
+last_check = 0
+for i, ann in enumerate(annotations["images"]):
+    img_path = "../../DocLayNet/PNG/" + ann["file_name"]
+    ocr = ann_index[ann["id"]]
+    samples.append({
+        "img_path": img_path,
+        "ocr": ocr
+    })
+    # progress update print
+    completion = 100 * i / length
+    if completion - last_check >= 10:
+        print(f"Completion: {100 * i / length}%")
+        last_check = completion
+
+print("samples built")
 def build_benchmark(sample):
-    image = sample["image"]
+    image = Image.open(sample["img_path"]).convert("RGB")
 
-    ocr_text = "\n".join([i["text"] for i in sample["ocr"]])
+    ocr_text = "\n".join([i["caption"] for i in sample["ocr"]])
 
     question = "How many text blocks are present in this document?"
-    answer = srt(len(sample["ocr"]))
+    answer = str(len(sample["ocr_text"]))
 
     return {
         "image": image,
-        "ocr_text": ocr_text,
+        "ocr": ocr_text,
         "question": question,
         "answer": answer
     }
-
-benchmark_dataset = raw_data.map(build_benchmark)
-# use 10,000 random samples from dataset
-benchmark_dataset = benchmark_dataset.shuffle(seed=42).select(range(min(10000, len(benchmark_dataset))))
-
-print("TKTK: Benchmarking models")
+dataset = Dataset.from_list(samples)
+benchmark_dataset = dataset.map(build_benchmark)
+print("Benchmarking models")
 
 print("TESTING SMOLVLM:")
 smol_results = benchmark_model(
