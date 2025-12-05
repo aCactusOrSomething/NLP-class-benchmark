@@ -178,6 +178,7 @@ def track_run(run_func, images, prompts, batch_size=4):
         })
 
         results.extend(batch_results)
+        print(f"finished batch {i}")
 
     return results, batch_stats
 
@@ -305,6 +306,12 @@ benchmark_dataset = dataset.map(build_benchmark, num_proc=4)
 print("Benchmarking models")
 
 
+print("TESTING NANO:")
+nano_results = benchmark_model(
+    "nanoVLM",
+    lambda imgs, prompts, batch_size: nanoVLM_run(nano_model, imgs, prompts, batch_size=batch_size),
+    benchmark_dataset
+)
 
 print("TESTING SMOLVLM:")
 smol_results = benchmark_model(
@@ -320,12 +327,7 @@ moondream_results = benchmark_model(
     benchmark_dataset
 )
 
-print("TESTING NANO:")
-nano_results = benchmark_model(
-    "nanoVLM",
-    lambda imgs, prompts, batch_size: nanoVLM_run(nano_model, imgs, prompts, batch_size=batch_size),
-    benchmark_dataset
-)
+
 
 print("TKTK: Generating output (NOT IMPLEMENTED)")
 
@@ -340,6 +342,7 @@ def summarize(name, results):
         avg_gpu = np.mean([s["gpu_mem"] for s in stats])
         avg_ram = np.mean([s["ram"] for s in stats])
         print(f"[{task.upper()}] avg_latency: {avg_latency:.4f}s, avg_gpu: {avg_gpu:.2f}MB, avg_ram: {avg_ram:.2f}MB")
+    print(f"CER: {results["ocr"]["cer"]} WER: {results["ocr"]["wer"]} VQA_accuracy: {results["vqa"]["accuracy"]}")
 
 summarize("SmolVLM-256m", smol_results)
 summarize("Moondream-0.5b", moondream_results)
