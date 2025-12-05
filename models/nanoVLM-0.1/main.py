@@ -146,8 +146,8 @@ print("TKTK: Setup for benchmarks")
 # tasks related to: visual question answering, optical character recognition
 # collect accuracy metrics, measure latency and amount of memory used for each task
 
-raw_data = load_dataset("ds4sd/DocLayNet", split="test", download_config=DownloadConfig(num_proc=1, max_retries=20))
-
+# raw_data = load_dataset("ds4sd/DocLayNet", split="test", download_config=DownloadConfig(num_proc=1, max_retries=20))
+raw_data = load_dataset("imagefolder", data_dir="../../DocLayNet/test")
 
 def build_benchmark(sample):
     image = sample["image"]
