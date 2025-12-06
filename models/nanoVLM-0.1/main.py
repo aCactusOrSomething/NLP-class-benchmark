@@ -15,6 +15,7 @@ import os
 from torchvision import transforms
 import json
 from dataclasses import dataclass
+import re
 from PIL import Image
 from pathlib import Path
 import random
@@ -70,6 +71,7 @@ def smolVLM_run(model, processor, images, prompts, batch_size=4):
                 for p in batch_prompts
             ]
             prompt = processor.apply_chat_template(messages, add_generation_prompt=True)
+            torch.cuda.reset_peak_memory_stats()
 
             inputs = processor(images=[img], text=prompt, return_tensors="pt").to(model.device)
             out = model.generate(**inputs, max_new_tokens=256, do_sample=False)
@@ -151,6 +153,9 @@ def measure_ram():
     return psutil.Process().memory_info().rss / 1024**2
 
 def vqa_accuracy(prediction, ground_truth):
+    m = re.search(r"\d+", prediction)
+    if m is None:
+        return 0;
     return float(prediction.strip().lower() == ground_truth.strip().lower())
 
 def track_run(run_func, images, prompts, batch_size=4):
