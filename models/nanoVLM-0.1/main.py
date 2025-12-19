@@ -21,6 +21,9 @@ from pathlib import Path
 import random
 from collections import defaultdict
 
+# ideally this should be at least 300
+benchmark_length = 300
+
 cells_dir = Path("../../DocLayNet/EXTRA/JSON")  # adjust path
 os.environ["HF_DATASETS_DOWNLOAD_TIMEOUT"] = "60000"  # seconds
 os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "60000"
@@ -71,7 +74,6 @@ def smolVLM_run(model, processor, images, prompts, batch_size=4):
                 for p in batch_prompts
             ]
             prompt = processor.apply_chat_template(messages, add_generation_prompt=True)
-            torch.cuda.reset_peak_memory_stats()
 
             inputs = processor(images=[img], text=prompt, return_tensors="pt").to(model.device)
             out = model.generate(**inputs, max_new_tokens=256, do_sample=False)
@@ -156,7 +158,7 @@ def vqa_accuracy(prediction, ground_truth):
     m = re.search(r"\d+", prediction)
     if m is None:
         return 0;
-    return float(prediction.strip().lower() == ground_truth.strip().lower())
+    return float(m.group(0) == ground_truth.strip().lower())
 
 def track_run(run_func, images, prompts, batch_size=4):
     results = []
@@ -173,6 +175,7 @@ def track_run(run_func, images, prompts, batch_size=4):
         batch_results = run_func(batch_imgs, batch_prompts, batch_size=batch_size)
 
         latency = time.time() - start_time
+        # torch.cuda.synchronize()
         gpu_mem = measure_gpu_memory()
         ram_used = measure_ram() - start_ram
         batch_stats.append({
@@ -211,11 +214,37 @@ def benchmark_model(model_name, run_func, dataset, batch_size=4):
     wer_score = wer_metric.compute(predictions=ocr_predictions, references=ocr_references)
 
     vqa_accuracy_score = np.mean([vqa_accuracy(p, r) for p, r in zip(vqa_predictions, vqa_references)])
+
+    bleu_refs = []
+    bleu_preds = []
+    MIN_LENGTH_TOKENS = 4
+    for p, r in zip(ocr_predictions, ocr_references):
+        if r is None:
+            continue
+        r = r.strip()
+        if len(r) == 0:
+            continue
+
+        if len(r.split()) < MIN_LENGTH_TOKENS or len(p.split()) < MIN_LENGTH_TOKENS:
+            continue
+        bleu_refs.append(r)
+        bleu_preds.append(p)
+
+    bleu = evaluate.load("bleu")
+    if len(bleu_refs) == 0 or len(bleu_preds) == 0:
+        bleu_score = None
+    else:
+
+        bleu_score = bleu.compute(
+            predictions=bleu_preds,
+            references=[[r] for r in bleu_refs] 
+        )
     
     return {
         "ocr": {
             "cer": cer_score,
             "wer": wer_score,
+            "bleu": bleu_score,
             "batch_stats": ocr_stats
         },
         "vqa": {
@@ -245,7 +274,7 @@ print("Setup for benchmarks")
 with open("../../DocLayNet/COCO/train.json") as f:
     annotations = json.load(f)
     annotations = annotations
-    annotations["images"] = annotations["images"][:300]
+    annotations["images"] = annotations["images"][:benchmark_length]
 
 print("JSON opened")
 length = len(annotations["images"])
@@ -347,7 +376,7 @@ def summarize(name, results):
         avg_gpu = np.mean([s["gpu_mem"] for s in stats])
         avg_ram = np.mean([s["ram"] for s in stats])
         print(f"[{task.upper()}] avg_latency: {avg_latency:.4f}s, avg_gpu: {avg_gpu:.2f}MB, avg_ram: {avg_ram:.2f}MB")
-    print(f"CER: {results["ocr"]["cer"]} WER: {results["ocr"]["wer"]} VQA_accuracy: {results["vqa"]["accuracy"]}")
+    print(f"CER: {results["ocr"]["cer"]} WER: {results["ocr"]["wer"]} BLEU: {results["ocr"]["bleu"]} VQA_accuracy: {results["vqa"]["accuracy"]}")
 
 summarize("SmolVLM-256m", smol_results)
 summarize("Moondream-0.5b", moondream_results)
